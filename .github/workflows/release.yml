@@ -1,0 +1,130 @@
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      is_prerelease:
+        description: 'Is this a pre-release?'
+        required: true
+        type: boolean
+        default: false
+      target_commitish:
+        description: 'Optional: Commit SHA, branch, or tag to release from (defaults to current branch/commit)'
+        required: false
+        type: string
+
+jobs:
+  create_release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.inputs.target_commitish || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4.7.1
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Read version from gradle.properties
+        id: read_version
+        run: |
+          raw_version=$(grep -E '^version\s*=' gradle.properties | cut -d'=' -f2 | tr -d '[:space:]')
+          if [ -z "$raw_version" ]; then
+            echo "Error: 'version' not found or empty in gradle.properties"
+            exit 1
+          fi
+          echo "Raw version from gradle.properties: $raw_version"
+          echo "version_tag=v$raw_version" >> $GITHUB_OUTPUT
+          echo "release_version=$raw_version" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Validate version format (for tag)
+        run: |
+          echo "Generated tag: ${{ steps.read_version.outputs.version_tag }}"
+          if [[ ! "${{ steps.read_version.outputs.version_tag }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "Error: Generated tag format (vX.Y.Z or vX.Y.Z-prerelease) is invalid based on version from gradle.properties."
+            exit 1
+          fi
+        shell: bash
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4.3.1
+
+      - name: Build installer
+        id: build_installer
+        run: ./gradlew build --stacktrace --warning-mode fail
+
+      - name: Generate Changelog
+        id: generate_changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          mode: "HYBRID"
+          configurationJson: |
+            {
+              "categories": [
+                {
+                  "title": "## 🚀 Features",
+                  "labels": ["feature", "feat"],
+                  "mode": "HYBRID"
+                },
+                {
+                  "title": "## 🐛 Fixes",
+                  "labels": ["fix", "bugfix", "bug"],
+                  "mode": "HYBRID"
+                },
+                {
+                  "title": "## 🧪 Tests",
+                  "labels": ["test"],
+                  "mode": "HYBRID"
+                },
+                {
+                  "title": "## 📝 Documentation",
+                  "labels": ["docs", "documentation"],
+                  "mode": "HYBRID"
+                },
+                {
+                  "title": "## 🧹 Chores",
+                  "labels": ["chore"],
+                  "mode": "HYBRID"
+                },
+                {
+                  "title": "## Other Changes",
+                  "labels": [],
+                  "mode": "HYBRID"
+                }
+              ],
+              "template": "#{{CHANGELOG}},
+              "empty_template": "No notable changes for this release."
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.read_version.outputs.version_tag }}
+          release_name: Release ${{ steps.read_version.outputs.release_version }}
+          body: ${{ steps.generate_changelog.outputs.changelog }}
+          draft: false
+          prerelease: ${{ github.event.inputs.is_prerelease }}
+
+      - name: Upload Installer JAR to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./build/libs/silk-installer-${{ steps.read_version.outputs.release_version }}-fat.jar
+          asset_name: silk-loader-${{ steps.read_version.outputs.release_version }}.jar
+          asset_content_type: application/java-archive
