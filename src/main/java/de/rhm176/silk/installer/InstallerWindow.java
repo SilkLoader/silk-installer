@@ -104,6 +104,7 @@ public class InstallerWindow extends JFrame {
         setTitle("Silk Loader Installer" + version);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
+        setResizable(false);
         String initialStatusMessage = "Initializing installer...";
 
         JPanel mainPanel = new JPanel();

@@ -126,5 +126,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./build/libs/silk-installer-${{ steps.read_version.outputs.release_version }}-fat.jar
-          asset_name: silk-loader-${{ steps.read_version.outputs.release_version }}.jar
+          asset_name: silk-installer-${{ steps.read_version.outputs.release_version }}.jar
           asset_content_type: application/java-archive

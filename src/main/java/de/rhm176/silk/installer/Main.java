@@ -436,8 +436,8 @@ public class Main {
 
         String launchCommand = String.format(
                 "java -cp \"%s" + File.pathSeparator + "lib" + File.separator + "*\" %s %%command%%",
-                getMainClassFromJar(silkLoaderPath),
-                SILK_LOADER_FIXED_JAR_NAME);
+                SILK_LOADER_FIXED_JAR_NAME,
+                getMainClassFromJar(silkLoaderPath));
         JTextArea commandArea = new JTextArea(launchCommand);
         commandArea.setEditable(false);
         commandArea.setFont(new Font("Monospaced", Font.BOLD, 13));
