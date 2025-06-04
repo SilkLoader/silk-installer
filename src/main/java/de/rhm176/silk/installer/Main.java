@@ -18,11 +18,10 @@ package de.rhm176.silk.installer;
 import com.eclipsesource.json.Json;
 import com.eclipsesource.json.JsonArray;
 import com.eclipsesource.json.JsonObject;
+import com.eclipsesource.json.JsonValue;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -82,15 +81,189 @@ public class Main {
                     IllegalAccessException {
         UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
 
-        SwingUtilities.invokeLater(() -> {
-            InstallerWindow window = new InstallerWindow();
-            window.setVisible(true);
-        });
+        if (args.length == 0) {
+            System.out.println("Run with --help for cli usage.");
+            SwingUtilities.invokeLater(() -> {
+                InstallerWindow window = new InstallerWindow();
+                window.setVisible(true);
+            });
+        } else {
+            handleCommandLineArgs(args);
+        }
+    }
+
+    private static void handleCommandLineArgs(String[] args) {
+        switch (args[0]) {
+            case "--help" -> printHelp();
+            case "install" -> {
+                if (args.length < 3 || args.length > 4) {
+                    System.err.println("Usage: install <silk-release-tag> <fabric-loader-version> [game-path]");
+                    return;
+                }
+                String silkReleaseTag = args[1];
+                String fabricVersion = args[2];
+                Path gamePath = null;
+                if (args.length == 4) {
+                    gamePath = Paths.get(args[3]);
+                } else {
+                    System.out.println("Game path not provided. Attempting to find Equilinox installation...");
+                    try {
+                        String stringGamePath = EquilinoxGameFinder.tryFindGame();
+                        if (stringGamePath == null) {
+                            System.err.println(
+                                    "Could not automatically find Equilinox installation. Please specify the game path manually for uninstallation.");
+                            System.exit(1);
+                        }
+                        gamePath = Path.of(stringGamePath);
+                        System.out.println("Found Equilinox at: " + gamePath);
+                    } catch (Exception e) {
+                        System.err.println("Error while searching for game path: " + e.getMessage());
+                        e.printStackTrace(System.err);
+                        System.exit(1);
+                    }
+                }
+
+                try {
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(FABRIC_LOADER_VERSIONS_URL))
+                            .build();
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                    if (response.statusCode() == 200) {
+                        // very unoptimized
+                        JsonArray versions = Json.parse(response.body()).asArray();
+                        if (!versions.isEmpty()) {
+                            Path finalGamePath = gamePath;
+                            versions.stream()
+                                    .filter(JsonValue::isObject)
+                                    .map(JsonValue::asObject)
+                                    .filter(o -> o.contains("version"))
+                                    .filter(o -> fabricVersion.equals(
+                                            o.get("version").asString()))
+                                    .findFirst()
+                                    .ifPresentOrElse(
+                                            (obj) -> install(
+                                                    obj.get("maven").asString(), silkReleaseTag, finalGamePath, null),
+                                            () -> System.out.println(
+                                                    "Could not find version '" + fabricVersion + "'."));
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("Installation failed: " + e.getMessage());
+                    e.printStackTrace(System.err);
+                    System.exit(1);
+                }
+            }
+            case "uninstall" -> {
+                if (args.length > 2) {
+                    System.err.println("Usage: uninstall [game-path]");
+                    return;
+                }
+                Path gamePath = null;
+                if (args.length == 2) {
+                    gamePath = Paths.get(args[1]);
+                } else {
+                    System.out.println(
+                            "Game path not provided. Attempting to find Equilinox installation for uninstallation...");
+                    try {
+                        String stringGamePath = EquilinoxGameFinder.tryFindGame();
+                        if (stringGamePath == null) {
+                            System.err.println(
+                                    "Could not automatically find Equilinox installation. Please specify the game path manually for uninstallation.");
+                            System.exit(1);
+                        }
+                        gamePath = Path.of(stringGamePath);
+                        System.out.println("Found Equilinox at: " + gamePath);
+                    } catch (Exception e) {
+                        System.err.println("Error while searching for game path: " + e.getMessage());
+                        e.printStackTrace(System.err);
+                        System.exit(1);
+                    }
+                }
+
+                try {
+                    uninstall(gamePath, null, false);
+                } catch (Exception e) {
+                    System.err.println("Uninstallation failed: " + e.getMessage());
+                    e.printStackTrace(System.err);
+                    System.exit(1);
+                }
+            }
+            default -> {
+                System.err.println("Unknown command: " + args[0] + ". Run with --help for usage information.");
+                System.exit(1);
+            }
+        }
+    }
+
+    private static void printHelp() {
+        System.out.println("Silk Loader Installer Command Line Usage:");
+        System.out.println("  --help                          Show this help message.");
+        System.out.println("  install <silk-release-tag> <fabric-loader-version> [game-path]");
+        System.out.println("                                  Install Silk Loader and Fabric Loader.");
+        System.out.println("                                  <silk-release-tag> e.g., v1.0.0");
+        System.out.println("                                  <fabric-loader-version> e.g., 0.15.7");
+        System.out.println(
+                "                                  [game-path] Optional. e.g., /path/to/Equilinox. If omitted, the installer will try to find it automatically.");
+        System.out.println("  uninstall [game-path]           Uninstall Silk Loader and Fabric Loader.");
+        System.out.println(
+                "                                  [game-path] Optional. e.g., /path/to/Equilinox. If omitted, the installer will try to find it automatically.");
+        System.out.println("\nVersion Information:");
+
+        String packageVersion = Main.class.getPackage().getImplementationVersion();
+        System.out.println("  Installer Version: " + (packageVersion != null ? packageVersion : "Unknown"));
+
+        try {
+            String latestSilkLoader = getLatestSilkLoaderVersion();
+            System.out.println("  Latest Silk Loader: " + (latestSilkLoader != null ? latestSilkLoader : "N/A"));
+        } catch (IOException | InterruptedException e) {
+            System.err.println("  Could not fetch latest Silk Loader version: " + e.getMessage());
+        }
+
+        try {
+            String latestFabricLoader = getLatestFabricLoaderVersion();
+            System.out.println("  Latest Fabric Loader: " + (latestFabricLoader != null ? latestFabricLoader : "N/A"));
+        } catch (IOException | InterruptedException e) {
+            System.err.println("  Could not fetch latest Fabric Loader version: " + e.getMessage());
+        }
+    }
+
+    private static String getLatestSilkLoaderVersion() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(Main.SILK_LOADER_RELEASES_URL))
+                .header("Accept", "application/vnd.github.v3+json")
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 200) {
+            JsonArray releases = Json.parse(response.body()).asArray();
+            if (!releases.isEmpty()) {
+                JsonObject latestRelease = releases.get(0).asObject();
+                return latestRelease.get("tag_name").asString();
+            }
+        }
+        return null;
+    }
+
+    private static String getLatestFabricLoaderVersion() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(FABRIC_LOADER_VERSIONS_URL))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 200) {
+            JsonArray versions = Json.parse(response.body()).asArray();
+            if (!versions.isEmpty()) {
+                JsonObject latestLoader = versions.get(0).asObject();
+                return latestLoader.get("version").asString();
+            }
+        }
+        return null;
     }
 
     @VisibleForTesting
     static void updateStatus(JLabel statusLabel, String message) {
-        System.out.println("[Installer] " + message);
+        System.out.println(message);
         if (statusLabel != null) {
             SwingUtilities.invokeLater(() -> statusLabel.setText(message));
         }
@@ -409,6 +582,13 @@ public class Main {
             }
             updateStatus(statusLabel, "All common library downloads attempted.");
             updateStatus(statusLabel, "Installation completed successfully!");
+            System.out.println();
+            System.out.println(
+                    "To make the mod loader automatically launch when you start Equilinox on Steam, set your launch options to this:");
+            System.out.printf(
+                    "java -cp \"%s" + File.pathSeparator + "lib" + File.separator + "*\" %s %%command%%%n",
+                    SILK_LOADER_FIXED_JAR_NAME,
+                    getMainClassFromJar(silkJarFixedPath));
 
             SwingUtilities.invokeLater(() -> showInstallInstructionsPopup(statusLabel, silkJarFixedPath));
         } catch (IOException | InterruptedException | IllegalArgumentException e) {
