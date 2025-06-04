@@ -15,6 +15,9 @@
  */
 package de.rhm176.silk.installer;
 
+import com.eclipsesource.json.Json;
+import com.eclipsesource.json.JsonArray;
+import com.eclipsesource.json.JsonObject;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
@@ -37,8 +40,6 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.VisibleForTesting;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 public class Main {
     // these two only exist to make testing easier
@@ -215,18 +216,18 @@ public class Main {
                 throw new IOException("Failed to fetch Silk Loader release info for " + silkReleaseTag + ". Status: "
                         + silkApiResponse.statusCode() + " Body: " + silkApiResponse.body());
             }
-            JSONObject releaseJson = new JSONObject(silkApiResponse.body());
-            JSONArray assets = releaseJson.optJSONArray("assets");
+            JsonObject releaseJson = Json.parse(silkApiResponse.body()).asObject();
+            JsonArray assets = releaseJson.get("assets").asArray();
             if (assets == null) {
                 throw new IOException("No assets found in Silk Loader release " + silkReleaseTag);
             }
             String silkJarDownloadUrl = null;
             String originalSilkJarName = null;
-            for (int i = 0; i < assets.length(); i++) {
-                JSONObject asset = assets.getJSONObject(i);
-                String name = asset.optString("name");
+            for (int i = 0; i < assets.size(); i++) {
+                JsonObject asset = assets.get(i).asObject();
+                String name = asset.get("name").asString();
                 if (name.toLowerCase().endsWith(".jar")) {
-                    silkJarDownloadUrl = asset.optString("browser_download_url");
+                    silkJarDownloadUrl = asset.get("browser_download_url").asString();
                     originalSilkJarName = name;
                     break;
                 }
@@ -335,15 +336,15 @@ public class Main {
             }
 
             updateStatus(statusLabel, "Parsing Fabric Loader JSON and downloading common libraries...");
-            JSONObject fabricMetaJson = new JSONObject(fabricLoaderJsonContent);
-            JSONObject librariesSection = fabricMetaJson.optJSONObject("libraries");
+            JsonObject fabricMetaJson = Json.parse(fabricLoaderJsonContent).asObject();
+            JsonObject librariesSection = fabricMetaJson.get("libraries").asObject();
             if (librariesSection != null) {
-                JSONArray commonLibraries = librariesSection.optJSONArray("common");
+                JsonArray commonLibraries = librariesSection.get("common").asArray();
                 if (commonLibraries != null) {
-                    for (int i = 0; i < commonLibraries.length(); i++) {
-                        JSONObject libInfo = commonLibraries.getJSONObject(i);
-                        String libNameFull = libInfo.getString("name");
-                        String libRepoUrl = libInfo.optString("url", FABRIC_MAVENS.get(0));
+                    for (int i = 0; i < commonLibraries.size(); i++) {
+                        JsonObject libInfo = commonLibraries.get(i).asObject();
+                        String libNameFull = libInfo.get("name").asString();
+                        String libRepoUrl = libInfo.getString("url", FABRIC_MAVENS.get(0));
 
                         String[] libParts = libNameFull.split(":");
                         if (libParts.length < 3) {
@@ -410,7 +411,7 @@ public class Main {
             updateStatus(statusLabel, "Installation completed successfully!");
 
             SwingUtilities.invokeLater(() -> showInstallInstructionsPopup(statusLabel, silkJarFixedPath));
-        } catch (IOException | InterruptedException | IllegalArgumentException | org.json.JSONException e) {
+        } catch (IOException | InterruptedException | IllegalArgumentException e) {
             String errorMessage = "Installation failed: " + e.getMessage();
             updateStatus(statusLabel, errorMessage);
             System.err.println(errorMessage);

@@ -21,7 +21,7 @@ repositories {
 dependencies {
     compileOnly("org.jetbrains:annotations:${project.property("annotationsVersion")}")
 
-    implementation("org.json:json:${property("jsonVersion")}")
+    implementation("com.github.tonivade:minimal-json:${property("jsonVersion")}")
 
     testImplementation("uk.org.webcompere:system-stubs-core:${project.property("systemStubsVersion")}")
     testImplementation("uk.org.webcompere:system-stubs-jupiter:${project.property("systemStubsVersion")}")

@@ -15,6 +15,9 @@
  */
 package de.rhm176.silk.installer;
 
+import com.eclipsesource.json.Json;
+import com.eclipsesource.json.JsonArray;
+import com.eclipsesource.json.JsonObject;
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.File;
@@ -36,9 +39,6 @@ import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
 
 public class InstallerWindow extends JFrame {
     private static final List<String> COMMON_STEAM_DIRECTORIES;
@@ -341,12 +341,13 @@ public class InstallerWindow extends JFrame {
                         .build();
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
-                    JSONArray jsonArray = new JSONArray(response.body());
-                    for (int i = 0; i < jsonArray.length(); i++) {
-                        JSONObject versionObject = jsonArray.getJSONObject(i);
-                        if (versionObject.has("version") && versionObject.has("maven")) {
+                    JsonArray jsonArray = Json.parse(response.body()).asArray();
+                    for (int i = 0; i < jsonArray.size(); i++) {
+                        JsonObject versionObject = jsonArray.get(i).asObject();
+                        if (versionObject.contains("version") && versionObject.contains("maven")) {
                             versions.add(new FabricVersionItem(
-                                    versionObject.getString("version"), versionObject.getString("maven")));
+                                    versionObject.get("version").asString(),
+                                    versionObject.get("maven").asString()));
                         }
                     }
                 } else {
@@ -377,9 +378,6 @@ public class InstallerWindow extends JFrame {
                 } catch (ExecutionException e) {
                     fabricSucceeded = false;
                     handleFabricLoadingError("Fabric: " + e.getCause().getMessage());
-                } catch (JSONException e) {
-                    fabricSucceeded = false;
-                    handleFabricLoadingError("Fabric: Error parsing data.");
                 } finally {
                     fabricVersionDropdown.setEnabled(fabricSucceeded
                             && fabricVersionDropdown.getItemCount() > 0
@@ -404,11 +402,11 @@ public class InstallerWindow extends JFrame {
                         .build();
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
-                    JSONArray jsonArray = new JSONArray(response.body());
-                    for (int i = 0; i < jsonArray.length(); i++) {
-                        JSONObject releaseObject = jsonArray.getJSONObject(i);
-                        if (releaseObject.has("tag_name")) {
-                            releaseTags.add(releaseObject.getString("tag_name"));
+                    JsonArray jsonArray = Json.parse(response.body()).asArray();
+                    for (int i = 0; i < jsonArray.size(); i++) {
+                        JsonObject releaseObject = jsonArray.get(i).asObject();
+                        if (releaseObject.contains("tag_name")) {
+                            releaseTags.add(releaseObject.get("tag_name").asString());
                         }
                     }
                 } else {
@@ -439,9 +437,6 @@ public class InstallerWindow extends JFrame {
                 } catch (ExecutionException e) {
                     silkSucceeded = false;
                     handleSilkLoadingError("Silk: " + e.getCause().getMessage());
-                } catch (JSONException e) {
-                    silkSucceeded = false;
-                    handleSilkLoadingError("Silk: Error parsing data.");
                 } finally {
                     silkVersionDropdown.setEnabled(silkSucceeded
                             && silkVersionDropdown.getItemCount() > 0
