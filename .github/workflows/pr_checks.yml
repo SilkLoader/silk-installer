@@ -1,0 +1,34 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate_pr:
+    name: Validate Pull Request
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4.7.1
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Check style
+        id: check_style
+        run: ./gradlew spotlessCheck --stacktrace
+
+      - name: Run tests
+        id: run_tests
+        run: ./gradlew test --stacktrace
+        if: success()
