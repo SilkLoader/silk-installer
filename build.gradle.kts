@@ -68,6 +68,8 @@ tasks.jar {
 tasks.shadowJar {
     archiveClassifier.set("fat")
 
+    exclude("META-INF/maven/**")
+
     manifest {
         attributes(manifestAttributes)
     }
