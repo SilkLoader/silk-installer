@@ -19,30 +19,44 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.nio.file.*;
+import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.jar.Attributes;
-import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class Main {
+    // these two only exist to make testing easier
+    interface HttpClientProvider {
+        HttpClient getHttpClient();
+    }
+
+    static class DefaultHttpClientProvider implements HttpClientProvider {
+        private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+
+        @Override
+        public HttpClient getHttpClient() {
+            return HTTP_CLIENT;
+        }
+    }
+
     public static List<String> FABRIC_MAVENS =
             List.of("https://maven.fabricmc.net/", "https://maven2.fabricmc.net/", "https://maven3.fabricmc.net/");
     public static final String FABRIC_LOADER_VERSIONS_URL = "https://meta.fabricmc.net/v2/versions/loader";
@@ -51,8 +65,16 @@ public class Main {
 
     public static final String SILK_LOADER_FIXED_JAR_NAME = "silk-loader.jar";
 
-    private static final HttpClient httpClient =
-            HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static HttpClient httpClient;
+
+    // only so testing is easier
+    static {
+        setHttpClient(new DefaultHttpClientProvider().getHttpClient());
+    }
+
+    public static void setHttpClient(HttpClient client) {
+        Main.httpClient = client;
+    }
 
     public static void main(String[] args)
             throws UnsupportedLookAndFeelException, ClassNotFoundException, InstantiationException,
@@ -65,14 +87,16 @@ public class Main {
         });
     }
 
-    private static void updateStatus(JLabel statusLabel, String message) {
+    @VisibleForTesting
+    static void updateStatus(JLabel statusLabel, String message) {
         System.out.println("[Installer] " + message);
         if (statusLabel != null) {
             SwingUtilities.invokeLater(() -> statusLabel.setText(message));
         }
     }
 
-    private static void downloadFile(String url, Path outputPath, String fileDescription, JLabel statusLabel)
+    @VisibleForTesting
+    static void downloadFile(String url, Path outputPath, String fileDescription, JLabel statusLabel)
             throws IOException, InterruptedException {
         updateStatus(statusLabel, "Downloading " + fileDescription + "...");
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
@@ -93,11 +117,19 @@ public class Main {
         }
     }
 
-    private static void deleteDirectoryRecursively(Path path, JLabel statusLabel) throws IOException {
+    @VisibleForTesting
+    static void deleteDirectoryRecursively(Path path, JLabel statusLabel) throws IOException {
         if (Files.exists(path) && Files.isDirectory(path)) {
             updateStatus(statusLabel, "Deleting directory: " + path);
             try (Stream<Path> walk = Files.walk(path)) {
-                walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                walk.sorted(Comparator.reverseOrder()).forEach((p) -> {
+                    try {
+                        Files.delete(p);
+                    } catch (IOException e) {
+                        updateStatus(statusLabel, "Failed to delete: " + p);
+                        e.printStackTrace(System.err);
+                    }
+                });
             }
             updateStatus(statusLabel, "Directory deleted: " + path);
         } else if (Files.exists(path) && !Files.isDirectory(path)) {
@@ -397,19 +429,29 @@ public class Main {
         }
     }
 
-    private static String getMainClassFromJar(Path jarPath) {
-        try (JarFile jarFile = new JarFile(jarPath.toFile())) {
-            Manifest manifest = jarFile.getManifest();
-            Attributes mainAttributes = manifest.getMainAttributes();
-            return mainAttributes.getValue(Attributes.Name.MAIN_CLASS);
-        } catch (IOException e) {
+    @VisibleForTesting
+    static String getMainClassFromJar(Path jarPath) {
+        try (FileSystem fs = FileSystems.newFileSystem(jarPath, Map.of())) {
+            Path manifestPath = fs.getPath("META-INF", "MANIFEST.MF");
+
+            if (Files.exists(manifestPath)) {
+                try (InputStream is = Files.newInputStream(manifestPath)) {
+                    Manifest manifest = new Manifest(is);
+                    Attributes mainAttributes = manifest.getMainAttributes();
+                    return Objects.requireNonNull(mainAttributes.getValue(Attributes.Name.MAIN_CLASS));
+                }
+            } else {
+                throw new IOException("JAR did not contain a MANIFEST.MF.");
+            }
+        } catch (IOException | NullPointerException e) {
             System.err.println("Error reading JAR manifest from " + jarPath + ": " + e.getMessage());
             e.printStackTrace(System.err);
         }
         return "de.rhm176.loader.Main"; // main class prior to including it in manifest
     }
 
-    private static void showInstallInstructionsPopup(Component parentComponent, Path silkLoaderPath) {
+    @VisibleForTesting
+    static void showInstallInstructionsPopup(Component parentComponent, Path silkLoaderPath) {
         String title = "Installation Successful!";
         String headerMessage = "To make the mod loader automatically launch when you start Equilinox on Steam:";
 
@@ -473,7 +515,8 @@ public class Main {
         JOptionPane.showMessageDialog(windowAncestor, panel, title, JOptionPane.INFORMATION_MESSAGE);
     }
 
-    private static void showUninstallInstructionsPopup(Component parentComponent) {
+    @VisibleForTesting
+    static void showUninstallInstructionsPopup(Component parentComponent) {
         String title = "Uninstallation Information";
         String message = "<html><body style='width: 350px;'>" + "The uninstallation process has finished.<br><br>"
                 + "<b>Important:</b> If you previously set <b>Steam launch options</b> for Equilinox to use the mod loader, "

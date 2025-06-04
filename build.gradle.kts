@@ -19,7 +19,29 @@ repositories {
 }
 
 dependencies {
+    compileOnly("org.jetbrains:annotations:${project.property("annotationsVersion")}")
+
     implementation("org.json:json:${property("jsonVersion")}")
+
+    testImplementation("uk.org.webcompere:system-stubs-core:${project.property("systemStubsVersion")}")
+    testImplementation("uk.org.webcompere:system-stubs-jupiter:${project.property("systemStubsVersion")}")
+
+    testImplementation("org.assertj:assertj-core:${project.property("assertjVersion")}")
+    testImplementation("org.assertj:assertj-swing-junit:${project.property("assertjVersion")}")
+
+    testImplementation("com.google.jimfs:jimfs:${project.property("jimfsVersion")}")
+    testImplementation("org.awaitility:awaitility:${project.property("awaitilityVersion")}")
+
+    testImplementation(platform("org.junit:junit-bom:${project.property("junitVersion")}"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    testImplementation("org.mockito:mockito-core:${project.property("mockitoVersion")}")
+    testImplementation("org.mockito:mockito-junit-jupiter:${project.property("mockitoVersion")}")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 application {
